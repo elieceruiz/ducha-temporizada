@@ -3,6 +3,9 @@ from datetime import datetime
 import pytz
 from pymongo import MongoClient
 import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # Colombia timezone
 tz = pytz.timezone("America/Bogota")
@@ -56,3 +59,38 @@ with col2:
 # Show response if already recorded
 if st.session_state.response_recorded:
     st.info(f"You've already answered: {st.session_state.response_recorded}")
+
+# Tab for viewing records and chart
+tab1, tab2 = st.tabs(["View Records", "View Chart"])
+
+# View Records Tab
+with tab1:
+    st.header("Recorded Responses")
+    # Fetch data from MongoDB
+    records = collection.find()
+    df = pd.DataFrame(records)
+    # Drop MongoDB-specific columns
+    df = df.drop(columns=["_id"])
+    
+    # Show the records in a table
+    st.dataframe(df)
+
+# View Chart Tab
+with tab2:
+    st.header("Responses Chart")
+    # Fetch data from MongoDB
+    records = collection.find()
+    df = pd.DataFrame(records)
+    # Drop MongoDB-specific columns
+    df = df.drop(columns=["_id"])
+    
+    # Count the answers
+    answer_counts = df["Answer"].value_counts()
+    
+    # Plot a bar chart
+    fig, ax = plt.subplots()
+    sns.barplot(x=answer_counts.index, y=answer_counts.values, ax=ax)
+    ax.set_title("Number of YES and NO Responses")
+    ax.set_xlabel("Response")
+    ax.set_ylabel("Count")
+    st.pyplot(fig)
