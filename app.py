@@ -1,121 +1,75 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import pytz
-import plotly.express as px
-import pymongo
+from pymongo import MongoClient
 
-# MongoDB Connection
-client = pymongo.MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+# MongoDB connection
+client = MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
 db = client['morning_routine']
 collection = db['sessions']
 
-# Initialize session state variables
-if 'data' not in st.session_state:
-    st.session_state['data'] = pd.DataFrame(columns=["item", "start_time", "end_time"])
+st.title("Morning Routine Tracker")
 
-if 'session_start_time' not in st.session_state:
-    st.session_state['session_start_time'] = None
-
-if 'current_item' not in st.session_state:
-    st.session_state['current_item'] = 0
-
-# Define Colombia timezone using pytz
-colombia_tz = pytz.timezone('America/Bogota')
-
-# List of items
+# Items list
 items = [
     "Small chair/bench", "Construction bucket", "Cloths for cleaning windows", "Rolled-up bag",
-    "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", "Shaving razor"
+    "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
+    "Glass cleaner", "Comb", "Shaving razor"
 ]
 
-# Title and Introduction
-st.title("Morning Routine Tracker")
-st.write("Welcome to Your Morning Routine Tracker!")
-st.write("This tool helps you log your morning routine, track the items you pick up, and measure how long it takes you to complete them. Select whether you woke up with the alarm, then proceed to pick the items one by one.")
+# Initialize session state
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = None
+if 'alarm_checked' not in st.session_state:
+    st.session_state.alarm_checked = False
+if 'item_times' not in st.session_state:
+    st.session_state.item_times = {}
+if 'table_displayed' not in st.session_state:
+    st.session_state.table_displayed = False
 
-# Step 1: Ask if you woke up with the alarm (YES/NO options)
-st.header("Step 1: Did you wake up with the alarm?")
-st.write("Please select YES or NO to start the session:")
+# Step 1: Alarm checkbox
+st.write("Step 1: Did you wake up with the alarm?")
+alarm = st.checkbox("Woke up with the alarm")
+if alarm and not st.session_state.alarm_checked:
+    st.session_state.start_time = datetime.now()
+    st.session_state.alarm_checked = True
 
-# Ask the question first and only allow one option at a time
-if 'wake_up_selected' not in st.session_state:
-    col1, col2 = st.columns(2)  # Create two columns for YES and NO options
+# Step 2: Items checkboxes
+st.write("Step 2: Select the items you took:")
 
-    with col1:
-        wake_up_alarm_yes = st.checkbox("YES", key="yes_checkbox")
-    with col2:
-        wake_up_alarm_no = st.checkbox("NO", key="no_checkbox")
+all_checked = True
+for item in items:
+    if item not in st.session_state.item_times:
+        st.session_state.item_times[item] = None
+    checked = st.checkbox(item, key=item)
+    if checked and st.session_state.item_times[item] is None:
+        st.session_state.item_times[item] = datetime.now()
+    if not checked:
+        all_checked = False
 
-    if wake_up_alarm_yes or wake_up_alarm_no:
-        st.session_state['wake_up_selected'] = True
-        st.session_state['session_start_time'] = datetime.now(colombia_tz)
-        st.write(f"Session started at: {st.session_state['session_start_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Display the decision and remove checkboxes
-        if wake_up_alarm_yes:
-            st.write("You woke up with the alarm!")
-        else:
-            st.write("You did not wake up with the alarm!")
+# Step 3: Display table when all items are checked
+if all_checked and not st.session_state.table_displayed:
+    end_time = max(st.session_state.item_times.values())
+    total_time = (end_time - st.session_state.start_time).total_seconds() if st.session_state.start_time else None
 
-        # Remove the checkboxes after selection
-        st.session_state['wake_up_selected'] = True
-        st.empty()  # This clears the checkboxes
+    data = {
+        "Woke up with alarm": ["Yes" if alarm else "No"],
+        "Start hour": [st.session_state.start_time.strftime("%Y-%m-%d %H:%M:%S") if st.session_state.start_time else "N/A"]
+    }
 
-# Step 2: Select the items you took (Checkboxes appear one by one)
-if 'wake_up_selected' in st.session_state:
-    st.header("Step 2: Select the items you took:")
-    st.write("Now, please select the items you took. They will be logged with their start time.")
+    for item in items:
+        timestamp = st.session_state.item_times[item]
+        data[item] = [timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else ""]
 
-    # Show the current item to be selected
-    if st.session_state['current_item'] < len(items):
-        current_item = items[st.session_state['current_item']]
-        if st.checkbox(current_item, key=current_item):
-            current_time = datetime.now(colombia_tz)
-            st.session_state['data'] = pd.concat([st.session_state['data'], pd.DataFrame([{"item": current_item, "start_time": current_time, "end_time": None}])], ignore_index=True)
-            st.write(f"{current_item} selected at {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    data["Finish hour"] = [end_time.strftime("%Y-%m-%d %H:%M:%S") if end_time else "N/A"]
+    data["Total time (seconds)"] = [total_time if total_time else "N/A"]
 
-            # Move to the next item
-            st.session_state['current_item'] += 1
+    df = pd.DataFrame(data)
 
-    # Once all items are selected, register the end time and show the log
-    if st.session_state['current_item'] == len(items):
-        end_time = datetime.now(colombia_tz)
-        st.session_state['data']['end_time'] = end_time
-        st.write(f"Session ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        # Save to MongoDB
-        save_data_to_mongo(st.session_state['data'])
+    # Save to MongoDB
+    collection.insert_one(data)
 
-        # Calculate total duration (ensure both datetime objects are tz-aware)
-        start_time = st.session_state['session_start_time'].astimezone(colombia_tz)  # Make sure it's tz-aware
-        duration = (end_time - start_time).seconds
-        st.write(f"Total duration: {duration} seconds")
+    st.subheader("Routine Summary")
+    st.dataframe(df)
 
-    # Display the log of items selected
-    st.subheader("Item Selection Log")
-    st.write(st.session_state['data'])
-
-# Graph: Sessions per day and duration per session
-if not st.session_state['data'].empty:
-    # Convert to pandas DataFrame for graphs
-    session_times = pd.to_datetime(st.session_state['data']['start_time'])
-    session_days = session_times.dt.date
-    session_durations = (pd.to_datetime(st.session_state['data']['end_time']) - session_times).dt.total_seconds()
-
-    # Plot sessions per day graph
-    daily_sessions = session_days.value_counts().sort_index()
-    fig_sessions = px.bar(x=daily_sessions.index.astype(str), y=daily_sessions.values, labels={'x': 'Date', 'y': 'Number of Sessions'},
-                          title="Sessions per Day")
-
-    # Plot session duration per day graph
-    fig_duration = px.bar(x=session_days.astype(str), y=session_durations, labels={'x': 'Date', 'y': 'Duration (seconds)'},
-                          title="Session Duration per Day")
-
-    st.plotly_chart(fig_sessions)
-    st.plotly_chart(fig_duration)
-
-# Function to save data to MongoDB
-def save_data_to_mongo(data):
-    for index, row in data.iterrows():
-        collection.insert_one(row.to_dict())
+    st.session_state.table_displayed = True
