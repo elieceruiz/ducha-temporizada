@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pymongo
+import pytz
 
 # Conexión a MongoDB Atlas
 client = pymongo.MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
@@ -9,7 +10,7 @@ db = client["morning_routine"]
 collection = db["routines"]
 
 # Configuración de la zona horaria
-st.set_page_config(page_title="Morning Routine Tracker", page_icon=":alarm_clock:")
+colombia_tz = pytz.timezone('America/Bogota')  # Hora de Colombia
 
 # Función para obtener los registros previos
 def get_previous_logs():
@@ -62,19 +63,19 @@ item_times = {}
 for item in items:
     if st.checkbox(item, key=item):
         if item not in item_times:
-            item_times[item] = {"start": datetime.now()}
+            item_times[item] = {"start": datetime.now(colombia_tz)}
         st.session_state[item] = item_times[item]["start"]  # Record start time as the current time
 
 # When all items are selected, calculate end times and total times
 if len(item_times) == len(items):
     # Record the session start time
-    start_time = datetime.now()
+    start_time = datetime.now(colombia_tz)
     end_times = []
     total_times = []
     
     # Calculate the end times and total times for each item
     for item, times in item_times.items():
-        end_time = datetime.now()  # Placeholder, update with the actual end time
+        end_time = datetime.now(colombia_tz)  # Placeholder, update with the actual end time
         times["end"] = end_time
         end_times.append(end_time)
         total_time = (end_time - times["start"]).total_seconds() / 60  # Convert to minutes
