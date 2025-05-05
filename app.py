@@ -1,96 +1,100 @@
 import streamlit as st
-from datetime import datetime
+import pymongo
 import pytz
-from pymongo import MongoClient
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from datetime import datetime
+from bson import ObjectId
 
-# MongoDB Atlas connection
-mongo_uri = st.secrets["MONGO_URI"]  # Keep using your env variable
-client = MongoClient(mongo_uri)
-db = client["shower_tracker"]
-collection = db["alarm"]
+# MongoDB Atlas URI
+mongo_uri = "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
-# Timezone
-tz = pytz.timezone("America/Bogota")
+# Connect to MongoDB Atlas
+client = pymongo.MongoClient(mongo_uri)
+db = client['shower_tracker']
+collection = db['alarm']
 
-# Streamlit layout
-st.set_page_config(page_title="Shower Tracker", layout="centered")
+# Timezone settings for local time
+timezone = pytz.timezone('America/Bogota')
 
-# Tabs
-tab1, tab2 = st.tabs(["📋 Record actions", "📊 View log & analysis"])
+# Helper function to save data
+def save_to_mongo(data):
+    collection.insert_one(data)
 
-# TAB 1 – Record actions
-with tab1:
-    st.title("Did you get up with your alarm?")
-    if "alarm_response" not in st.session_state:
-        st.session_state.alarm_response = None
+# Streamlit UI
+st.title("Shower Tracker")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.session_state.alarm_response is None:
-            if st.button("✅ YES"):
-                time_now = datetime.now(tz)
-                doc = {"Index": 1, "Alarm": "YES", "Timestamp": time_now}
-                collection.insert_one(doc)
-                st.session_state.alarm_response = "YES"
-                st.success("You confirmed: YES")
+# Alarm check
+alarm = st.radio("Did you wake up with your alarm?", ["YES", "NO"])
 
-    with col2:
-        if st.session_state.alarm_response is None:
-            if st.button("❌ NO"):
-                time_now = datetime.now(tz)
-                doc = {"Index": 1, "Alarm": "NO", "Timestamp": time_now}
-                collection.insert_one(doc)
-                st.session_state.alarm_response = "NO"
-                st.warning("You confirmed: NO")
+if alarm == "YES":
+    alarm_time = datetime.now(timezone)
+    st.write(f"Alarm time: {alarm_time.strftime('%Y-%m-%d %H:%M:%S')}")
+else:
+    alarm_time = None
 
-    # Checkboxes for actions
-    st.subheader("Shower Routine Items")
-    actions = [
-        "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
-        "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
-        "Glass cleaner", "Comb", "Shaving razor"
-    ]
+# Tracking items
+tracked_items = [
+    "Small chair/bench", "Construction bucket", "Cloths for cleaning windows", 
+    "Rolled-up bag", "Shampoo", "Conditioner", "Hair collecting sponge", 
+    "Glass cleaner", "Comb", "Shaving razor", "Soaps"
+]
 
-    for action in actions:
-        if st.checkbox(action, key=action):
-            time_now = datetime.now(tz)
-            collection.update_one(
-                {"Index": 1},
-                {"$set": {action: time_now.strftime("%Y-%m-%d %H:%M:%S")}},
-                upsert=True
-            )
+# Save times for items selected
+item_times = {}
 
-# TAB 2 – Data & Visualization
-with tab2:
-    st.title("Tracked Actions Overview")
+for item in tracked_items:
+    if st.checkbox(item):
+        item_times[item] = datetime.now(timezone)
+        st.write(f"Time for {item}: {item_times[item].strftime('%Y-%m-%d %H:%M:%S')}")
 
-    records = list(collection.find())
-    if not records:
-        st.info("No data found.")
-    else:
-        df = pd.DataFrame(records).drop(columns=["_id"])
-        df.sort_values("Timestamp", inplace=True)
-        st.subheader("Log Table")
-        st.dataframe(df)
+# Save button
+if st.button("Save all data"):
+    data = {
+        "alarm": alarm,
+        "alarm_time": alarm_time,
+        "items": item_times
+    }
+    save_to_mongo(data)
+    st.success("Data saved to MongoDB!")
 
-        # Heatmap (if time columns are available)
-        st.subheader("Action Timeline (minutes after alarm)")
-        if "Alarm" in df.columns:
-            df_time = df.copy()
-            base_time = pd.to_datetime(df_time["Timestamp"].min())
-            time_deltas = []
+# Data display - show table and analysis
+st.subheader("Records")
 
-            for col in actions:
-                if col in df_time.columns:
-                    df_time[col] = pd.to_datetime(df_time[col], errors="coerce")
-                    delta = (df_time[col] - base_time).dt.total_seconds() / 60
-                    time_deltas.append((col, delta.values[0] if not pd.isna(delta.values[0]) else None))
+# Fetch data from MongoDB
+records = list(collection.find())
 
-            plot_df = pd.DataFrame(time_deltas, columns=["Action", "Minutes After Alarm"]).dropna()
-            fig, ax = plt.subplots()
-            sns.barplot(data=plot_df, x="Minutes After Alarm", y="Action", ax=ax, palette="Blues_d")
-            ax.set_title("Time Taken for Each Shower Item")
-            st.pyplot(fig)
+# Convert to DataFrame
+df = pd.DataFrame(records)
+
+# Clean up DataFrame for display
+if not df.empty:
+    df['alarm_time'] = pd.to_datetime(df['alarm_time'], errors='coerce')
+    df['items'] = df['items'].apply(lambda x: ', '.join(x.keys()) if isinstance(x, dict) else "")
+
+    # Display the table of records
+    st.write(df)
+
+    # Analysis: Count of daily executions and total time from alarm to last check
+    df['date'] = df['alarm_time'].dt.date
+    daily_counts = df.groupby('date').size()
+    total_time = df['alarm_time'].apply(lambda x: (datetime.now(timezone) - x).total_seconds())
+
+    st.subheader("Daily Execution Analysis")
+
+    # Plot daily counts of executions
+    plt.figure(figsize=(10, 6))
+    sns.countplot(x='date', data=df)
+    plt.xticks(rotation=45)
+    plt.title("Daily Executions")
+    st.pyplot(plt)
+
+    # Plot total time from alarm to last check
+    plt.figure(figsize=(10, 6))
+    sns.histplot(total_time, bins=10, kde=True)
+    plt.title("Time from Alarm to Last Check")
+    st.pyplot(plt)
+
+else:
+    st.write("No records available.")
