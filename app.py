@@ -29,15 +29,26 @@ items = [
     "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", "Shaving razor"
 ]
 
-# Tab 1: Ask if you woke up with the alarm (checkbox for YES and NO)
+# Title and description
 st.title("Morning Routine Tracker")
+st.markdown("""
+    ## Welcome to Your Morning Routine Tracker!
+    This tool helps you log your morning routine, track the items you pick up, and measure how long it takes you to complete them.
+    Select whether you woke up with the alarm, then proceed to pick the items one by one.
+""")
 
-# Ask the question first
-st.write("Did you wake up with the alarm?")
+# Tab 1: Ask if you woke up with the alarm (checkbox for YES and NO)
+st.markdown("### Step 1: Did you wake up with the alarm?")
+st.write("Please select **YES** or **NO** to start the session:")
 
-# Create checkboxes for "YES" and "NO"
-wake_up_alarm_yes = st.checkbox("YES")
-wake_up_alarm_no = st.checkbox("NO")
+# Create checkboxes for "YES" and "NO" side by side (front and back)
+col1, col2 = st.columns([1, 1])  # Two columns with equal width
+
+with col1:
+    wake_up_alarm_yes = st.checkbox("YES", key="yes_checkbox", label_visibility="visible")
+    
+with col2:
+    wake_up_alarm_no = st.checkbox("NO", key="no_checkbox", label_visibility="visible")
 
 # Regardless of YES or NO, register the start time
 if wake_up_alarm_yes or wake_up_alarm_no:
@@ -46,11 +57,12 @@ if wake_up_alarm_yes or wake_up_alarm_no:
         st.write(f"Session started at: {st.session_state['session_start_time'].strftime('%Y-%m-%d %H:%M:%S')}")
     
     # Disable the checkboxes after the selection to avoid re-triggering
-    st.checkbox("YES", value=False, disabled=True)
-    st.checkbox("NO", value=False, disabled=True)
+    st.checkbox("YES", value=False, disabled=True, key="yes_checkbox_disabled")  # Add unique key here
+    st.checkbox("NO", value=False, disabled=True, key="no_checkbox_disabled")  # Add unique key here
 
 # Tab 2: Item selection with checkboxes
-st.subheader("Select the items you took:")
+st.subheader("### Step 2: Select the items you took:")
+st.write("Now, please select the items you took. They will be logged with their start time.")
 
 # Show the current item to be selected
 if st.session_state['current_item'] < len(items):
@@ -77,7 +89,7 @@ if st.session_state['current_item'] == len(items):  # When all items have been s
     st.write(f"Total duration: {duration} seconds")
 
 # Display the log in the second tab
-st.subheader("Item Selection Log")
+st.subheader("### Item Selection Log")
 st.write(st.session_state['data'])
 
 # Graph: Number of sessions per day and duration per session
