@@ -51,10 +51,16 @@ if 'wake_up_selected' not in st.session_state:
         st.session_state['wake_up_selected'] = True
         st.session_state['session_start_time'] = datetime.now(colombia_tz)
         st.write(f"Session started at: {st.session_state['session_start_time'].strftime('%Y-%m-%d %H:%M:%S')}")
-        # Disable both checkboxes to avoid re-selection
+        
+        # Display the decision and remove checkboxes
+        if wake_up_alarm_yes:
+            st.write("You woke up with the alarm!")
+        else:
+            st.write("You did not wake up with the alarm!")
+
+        # Remove the checkboxes after selection
         st.session_state['wake_up_selected'] = True
-        st.checkbox("YES", value=False, disabled=True, key="yes_disabled")
-        st.checkbox("NO", value=False, disabled=True, key="no_disabled")
+        st.empty()  # This clears the checkboxes
 
 # Step 2: Select the items you took (Checkboxes appear one by one)
 if 'wake_up_selected' in st.session_state:
@@ -81,8 +87,9 @@ if 'wake_up_selected' in st.session_state:
         # Save to MongoDB
         save_data_to_mongo(st.session_state['data'])
 
-        # Calculate total duration
-        duration = (end_time - st.session_state['session_start_time']).seconds
+        # Calculate total duration (ensure both datetime objects are tz-aware)
+        start_time = st.session_state['session_start_time'].astimezone(colombia_tz)  # Make sure it's tz-aware
+        duration = (end_time - start_time).seconds
         st.write(f"Total duration: {duration} seconds")
 
     # Display the log of items selected
