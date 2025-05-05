@@ -17,18 +17,18 @@ def get_previous_logs():
     logs = collection.find().sort("start_time", pymongo.ASCENDING)
     return list(logs)
 
-# Crear las pestañas
-tabs = st.selectbox("Choose the section", ["Routine", "Previous Logs"])
+# Pestañas
+tab1, tab2 = st.tabs(["Routine", "Previous Logs"])
 
-if tabs == "Routine":
-    # Step 1: Wake up with alarm question using checkboxes
+# Pestaña 1: Routine
+with tab1:
+    # Step 1: Wake up with alarm question
     if "woke_up" not in st.session_state:
         st.session_state["woke_up"] = None
 
-    # Checkbox to select if woke up with alarm
     woke_up_checkbox = st.checkbox("Did you wake up with the alarm?", key="woke_up")
 
-    # Save the selection of YES or NO as text
+    # Registra si se levantó con la alarma
     if woke_up_checkbox:
         st.session_state["woke_up_text"] = "YES"
     else:
@@ -37,50 +37,47 @@ if tabs == "Routine":
     if st.session_state.get("woke_up_text"):
         st.write(f"Your selection: {st.session_state['woke_up_text']}")
 
-    # Step 2: Select the items you took using checkboxes
+    # Step 2: Mostrar los ítems para seleccionar
     items = [
         "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
         "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
         "Glass cleaner", "Comb", "Shaving razor"
     ]
 
-    # Initialize a dictionary to store the start and end times for each item
     item_times = {}
+    start_time = None
 
-    # Display checkboxes for each item
+    # Mostrar los ítems en orden
     for item in items:
         if st.checkbox(item, key=item):
-            if item not in item_times:
-                item_times[item] = {"start": datetime.now(colombia_tz)}
-            st.session_state[item] = item_times[item]["start"]  # Record start time as the current time
+            # Si se marca el ítem, registrar la hora
+            if not start_time:
+                start_time = datetime.now(colombia_tz)  # Guardar la hora de inicio al marcar el primer ítem
 
-    # When all items are selected, calculate end times and total times
-    if len(item_times) == len(items):
-        # Record the session start time
-        start_time = datetime.now(colombia_tz)
-        end_times = []
-        total_times = []
+            item_times[item] = datetime.now(colombia_tz)  # Guardar la hora de cada ítem seleccionado
 
-        # Calculate the end times and total times for each item
-        for item, times in item_times.items():
-            end_time = datetime.now(colombia_tz)  # Placeholder, update with the actual end time
-            times["end"] = end_time
-            end_times.append(end_time)
-            total_time = (end_time - times["start"]).total_seconds() / 60  # Convert to minutes
-            total_times.append(total_time)
+    # Al finalizar la selección de ítems, calcular el total de tiempo
+    if item_times:
+        # La hora de finalización es la del último ítem seleccionado
+        end_time = list(item_times.values())[-1]
 
-        # Save the log to MongoDB in the "routines" collection
+        # Calcular el tiempo total en minutos
+        total_time = (end_time - start_time).total_seconds() / 60
+
+        # Registrar los datos en MongoDB
         collection.insert_one({
             "Woke up with alarm": st.session_state["woke_up_text"],
-            "Start hour": start_time,
-            "End hour": end_times,
-            "Total time (minutes)": total_times,
-            **{item: times["end"].strftime("%Y-%m-%d %H:%M:%S") for item, times in item_times.items()}  # Store end time for each item
+            "Start hour": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "End hour": end_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "Total time (minutes)": total_time,
+            **{item: item_times[item].strftime("%Y-%m-%d %H:%M:%S") for item in item_times}  # Guardar la hora de cada ítem
         })
 
+        st.write(f"Total time: {total_time:.2f} minutes.")
         st.write("Session complete. Your routine has been logged.")
 
-elif tabs == "Previous Logs":
+# Pestaña 2: Previous Logs
+with tab2:
     # Mostrar los registros previos
     logs = get_previous_logs()
     if logs:
@@ -90,7 +87,6 @@ elif tabs == "Previous Logs":
             log_data.append({
                 "Woke up with alarm": log["Woke up with alarm"],
                 "Start hour": log["Start hour"],
-                "Item": log["Small chair/bench"],  # Muestra un ítem de ejemplo
                 "End hour": log["End hour"],
                 "Total time": log["Total time (minutes)"]
             })
