@@ -1,85 +1,106 @@
 import streamlit as st
-from pymongo import MongoClient
-from datetime import datetime
-import pytz
 import pandas as pd
+import pymongo
+from datetime import datetime
+import pytz  # Importing pytz for timezone management
+import plotly.express as px  # Importing Plotly for the interactive graph
 
-# MongoDB connection
-mongo_uri = "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-client = MongoClient(mongo_uri)
-db = client.shower_tracker
-collection = db.sessions
+# MongoDB Connection
+client = pymongo.MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+db = client['morning_routine']  # Updated database name
+collection = db['sessions']
 
-# Timezone
-local_tz = pytz.timezone("America/Bogota")
+# Initialize session state variables
+if 'data' not in st.session_state:
+    st.session_state['data'] = pd.DataFrame(columns=["item", "start_time", "end_time"])
 
-# App layout
-st.set_page_config(page_title="Morning Routine Tracker", layout="wide")
-st.title("Morning Routine Tracker")
+if 'session_start_time' not in st.session_state:
+    st.session_state['session_start_time'] = None
 
-# Session state
-if 'session_start' not in st.session_state:
-    st.session_state.session_start = datetime.now(local_tz)
-    st.session_state.items_checked = []
-    st.session_state.next_index = 0
-    st.session_state.events = []
-    st.session_state.session_saved = False
+if 'current_item' not in st.session_state:
+    st.session_state['current_item'] = 0
 
-# Routine items
-routine_items = [
-    "Small chair", "Construction bucket", "Window cleaning cloths", "Rolled-up bag",
-    "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb",
-    "Shaving razor", "Soaps"
+# Define Colombia timezone using pytz
+colombia_tz = pytz.timezone('America/Bogota')
+
+# List of items
+items = [
+    "Small chair/bench", "Construction bucket", "Cloths for cleaning windows", "Rolled-up bag", 
+    "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", "Shaving razor"
 ]
 
-# Step 1: Wake-up checkbox
-if 'wake_checked' not in st.session_state:
-    st.session_state.wake_checked = False
+# Tab 1: Ask if you woke up with the alarm (checkbox for YES and NO)
+st.title("Morning Routine Tracker")
 
-if not st.session_state.wake_checked:
-    woke_up = st.checkbox("Did you wake up with the alarm?")
-    if woke_up:
-        st.session_state.wake_checked = True
-        st.session_state.events.append({
-            "event": "wake_up_with_alarm",
-            "value": True,
-            "timestamp": datetime.now(local_tz)
-        })
-else:
-    if st.session_state.next_index < len(routine_items):
-        current_item = routine_items[st.session_state.next_index]
-        if st.button(f"Done: {current_item}"):
-            st.session_state.items_checked.append(current_item)
-            st.session_state.events.append({
-                "event": current_item,
-                "timestamp": datetime.now(local_tz)
-            })
-            st.session_state.next_index += 1
-    else:
-        if not st.session_state.session_saved:
-            session_end = datetime.now(local_tz)
-            session_data = {
-                "wake_up_with_alarm": True,
-                "session_start_time": st.session_state.session_start,
-                "session_end_time": session_end,
-                "items_checked": st.session_state.items_checked,
-                "events": st.session_state.events
-            }
-            collection.insert_one(session_data)
-            st.session_state.session_saved = True
-            st.success("Session saved.")
+# Ask the question first
+st.write("Did you wake up with the alarm?")
 
-# Tabs
-view_tab = st.tabs(["Table"])[0]
+# Create checkboxes for "YES" and "NO"
+wake_up_alarm_yes = st.checkbox("YES")
+wake_up_alarm_no = st.checkbox("NO")
 
-with view_tab:
-    data = list(collection.find())
-    if data:
-        df = pd.DataFrame(data)
-        df['session_start_time'] = pd.to_datetime(df['session_start_time'])
-        df['session_end_time'] = pd.to_datetime(df['session_end_time'])
-        df['session_date'] = df['session_start_time'].dt.date
-        df['duration_min'] = (df['session_end_time'] - df['session_start_time']).dt.total_seconds() / 60
-        st.dataframe(df[['session_date', 'wake_up_with_alarm', 'duration_min', 'items_checked']], use_container_width=True)
-    else:
-        st.info("No session data available yet.")
+# Regardless of YES or NO, register the start time
+if wake_up_alarm_yes or wake_up_alarm_no:
+    if st.session_state['session_start_time'] is None:
+        st.session_state['session_start_time'] = datetime.now(colombia_tz)
+        st.write(f"Session started at: {st.session_state['session_start_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Disable the checkboxes after the selection to avoid re-triggering
+    st.checkbox("YES", value=False, disabled=True)
+    st.checkbox("NO", value=False, disabled=True)
+
+# Tab 2: Item selection with checkboxes
+st.subheader("Select the items you took:")
+
+# Show the current item to be selected
+if st.session_state['current_item'] < len(items):
+    current_item = items[st.session_state['current_item']]
+    if st.checkbox(current_item, key=current_item):
+        current_time = datetime.now(colombia_tz)
+        st.session_state['data'] = st.session_state['data'].append({"item": current_item, "start_time": current_time, "end_time": None}, ignore_index=True)
+        st.write(f"{current_item} selected at {current_time.strftime('%Y-%m-%d %H:%M:%S')}")
+        
+        # Move to the next item
+        st.session_state['current_item'] += 1
+
+# Register the end time (when the last item is selected)
+if st.session_state['current_item'] == len(items):  # When all items have been selected
+    end_time = datetime.now(colombia_tz)
+    st.session_state['data']['end_time'] = end_time
+    st.write(f"Session ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Save to MongoDB
+    save_data_to_mongo(st.session_state['data'])
+
+    # Calculate total duration
+    duration = (end_time - st.session_state['session_start_time']).seconds
+    st.write(f"Total duration: {duration} seconds")
+
+# Display the log in the second tab
+st.subheader("Item Selection Log")
+st.write(st.session_state['data'])
+
+# Graph: Number of sessions per day and duration per session
+# If there is data, show the graph
+if not st.session_state['data'].empty:
+    # Convert to pandas DataFrame for graphs
+    session_times = pd.to_datetime(st.session_state['data']['start_time'])
+    session_days = session_times.dt.date
+    session_durations = (pd.to_datetime(st.session_state['data']['end_time']) - session_times).dt.total_seconds()
+
+    # Show the sessions per day graph using Plotly
+    daily_sessions = session_days.value_counts().sort_index()
+    fig_sessions = px.bar(x=daily_sessions.index.astype(str), y=daily_sessions.values, labels={'x': 'Date', 'y': 'Number of Sessions'},
+                          title="Sessions per Day")
+
+    # Show the session duration per day graph using Plotly
+    fig_duration = px.bar(x=session_days.astype(str), y=session_durations, labels={'x': 'Date', 'y': 'Duration (seconds)'},
+                          title="Session Duration per Day")
+
+    st.plotly_chart(fig_sessions)
+    st.plotly_chart(fig_duration)
+
+# Function to save data to MongoDB
+def save_data_to_mongo(data):
+    for index, row in data.iterrows():
+        collection.insert_one(row.to_dict())
