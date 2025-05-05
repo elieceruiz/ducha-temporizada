@@ -20,6 +20,7 @@ tab1, tab2 = st.tabs(["☀️ Morning Routine", "📊 Records"])
 # ------------------- TAB 1: Main Routine Tracker ----------------------
 with tab1:
     st.header("🧼 Morning Routine Tracker")
+    st.subheader("Did you wake up with the alarm?")
     routine_items = [
         "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
         "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
