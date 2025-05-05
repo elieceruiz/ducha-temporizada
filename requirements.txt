@@ -2,7 +2,3 @@ streamlit
 pymongo
 pytz
 pandas
-matplotlib
-seaborn
-numpy
-altair
