@@ -1,75 +1,88 @@
 import streamlit as st
 import pandas as pd
-import pytz
+import pymongo
 from datetime import datetime
-from pymongo import MongoClient
-import time
+import pytz
+import matplotlib.pyplot as plt
 
-# MongoDB Atlas URI
+# MongoDB connection
 mongo_uri = "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-client = MongoClient(mongo_uri)
-db = client["shower_tracker"]
-alarm_collection = db["alarm"]
-sessions_collection = db["sessions"]
+client = pymongo.MongoClient(mongo_uri)
+db = client.get_database("shower_tracker")
+sessions_collection = db.sessions
 
-# Items list
-items = [
-    "Small chair", "Construction bucket", "Window cleaning cloths", "Rolled-up bag", 
-    "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", 
-    "Shaving razor", "Soaps"
-]
+# Item list
+items = ["Small chair", "Construction bucket", "Window cleaning cloths", "Rolled-up bag", 
+         "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", 
+         "Shaving razor", "Soaps"]
 
-# Create session tracking if not exists
-if 'start_time' not in st.session_state:
-    st.session_state.start_time = None
-    st.session_state.end_time = None
-    st.session_state.items_checked = []
-    st.session_state.time_elapsed = 0
-
-# Time zone setup
-timezone = pytz.timezone("America/Bogota")
-
-# Wake-up checkbox
-wake_up_with_alarm = st.checkbox("Did you wake up with the alarm?")
-
-# Record time logic
-if wake_up_with_alarm:
-    if st.session_state.start_time is None:
-        st.session_state.start_time = datetime.now(timezone)
-        st.session_state.items_checked = []
-        st.session_state.time_elapsed = 0
-
-# Display item checkboxes
-st.write("Select the items you have used:")
-for item in items:
-    if st.checkbox(item, key=item):
-        st.session_state.items_checked.append(item)
-
-# Calculate time elapsed
-if st.session_state.start_time:
-    st.session_state.end_time = datetime.now(timezone)
-    st.session_state.time_elapsed = (st.session_state.end_time - st.session_state.start_time).total_seconds() / 60  # in minutes
-
-# Display elapsed time
-st.write(f"Time elapsed: {st.session_state.time_elapsed:.2f} minutes")
-
-# Save the data to MongoDB when done
-if st.button("Submit"):
+# Register session in MongoDB
+def log_session_to_mongo(start_time, end_time, item_times):
     session_data = {
-        "start_time": st.session_state.start_time,
-        "end_time": st.session_state.end_time,
-        "time_elapsed": st.session_state.time_elapsed,
-        "items_checked": st.session_state.items_checked,
-        "wake_up_with_alarm": wake_up_with_alarm,
-        "date": datetime.now(timezone).strftime("%Y-%m-%d %H:%M:%S")
+        "session_start_time": start_time,
+        "session_end_time": end_time,
+        "session_duration": (end_time - start_time).total_seconds(),
+        "items": item_times
     }
     sessions_collection.insert_one(session_data)
-    st.success("Session data saved!")
 
-# Reset button
-if st.button("Reset"):
-    st.session_state.start_time = None
-    st.session_state.end_time = None
-    st.session_state.items_checked = []
-    st.session_state.time_elapsed = 0
-    st.experimental_rerun()
+# Main app
+def main():
+    st.set_page_config(page_title="Wake Routine Tracker", layout="wide")
+    st.title("⏰ Wake Routine Tracker")
+
+    tab1, tab2 = st.tabs(["📋 Record Session", "📊 View Data"])
+
+    with tab1:
+        st.subheader("Did you wake up with the alarm?")
+        woke_up_yes = st.checkbox("YES")
+        woke_up_no = st.checkbox("NO")
+
+        if woke_up_yes and woke_up_no:
+            st.warning("Please select only one: YES or NO.")
+            st.stop()
+
+        if woke_up_yes or woke_up_no:
+            session_start = datetime.now(pytz.timezone("America/Bogota"))
+            st.success("Session started. Now check each item as you go.")
+
+            item_times = {}
+            for i, item in enumerate(items):
+                label = f"{i + 1}. {item}"
+                if i == 0 or items[i - 1] in item_times:
+                    if st.checkbox(label, key=item):
+                        item_times[item] = datetime.now(pytz.timezone("America/Bogota"))
+                        st.info(f"✔️ Marked at {item_times[item].strftime('%H:%M:%S')}")
+
+            if len(item_times) == len(items):
+                session_end = datetime.now(pytz.timezone("America/Bogota"))
+                log_session_to_mongo(session_start, session_end, item_times)
+                duration_min = (session_end - session_start).total_seconds() / 60
+                st.success(f"✅ Session complete. Total time: {duration_min:.2f} minutes.")
+
+    with tab2:
+        st.subheader("📊 Session Summary and Chart")
+
+        data = list(sessions_collection.find())
+        if not data:
+            st.info("No sessions found.")
+            return
+
+        df = pd.DataFrame(data)
+        df['session_start_time'] = pd.to_datetime(df['session_start_time'])
+        df['session_end_time'] = pd.to_datetime(df['session_end_time'])
+        df['session_duration_min'] = df['session_duration'] / 60
+
+        st.write("### Table of Sessions")
+        st.dataframe(df[["session_start_time", "session_end_time", "session_duration_min"]])
+
+        st.write("### Duration per Session (minutes)")
+        plt.figure(figsize=(10, 5))
+        plt.bar(df.index + 1, df['session_duration_min'], color='teal')
+        plt.xlabel("Session Number")
+        plt.ylabel("Duration (minutes)")
+        plt.title("Total Time per Wake Routine Session")
+        st.pyplot(plt)
+
+if __name__ == "__main__":
+    main()
