@@ -2,92 +2,95 @@ import streamlit as st
 from datetime import datetime
 import pytz
 from pymongo import MongoClient
-
-# Time zone for Colombia
-tz = pytz.timezone("America/Bogota")
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # MongoDB Atlas connection
-mongo_uri = "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+mongo_uri = st.secrets["MONGO_URI"]  # Keep using your env variable
 client = MongoClient(mongo_uri)
 db = client["shower_tracker"]
-coleccion = db["sessions"]
+collection = db["alarm"]
 
+# Timezone
+tz = pytz.timezone("America/Bogota")
+
+# Streamlit layout
 st.set_page_config(page_title="Shower Tracker", layout="centered")
-st.title("Did you get up with your alarm?")
 
-# Session state to track if we've already recorded the alarm response
-if "alarm_recorded" not in st.session_state:
-    st.session_state.alarm_recorded = False
+# Tabs
+tab1, tab2 = st.tabs(["📋 Record actions", "📊 View log & analysis"])
 
-# Collect alarm response (YES or NO)
-col1, col2 = st.columns(2)
+# TAB 1 – Record actions
+with tab1:
+    st.title("Did you get up with your alarm?")
+    if "alarm_response" not in st.session_state:
+        st.session_state.alarm_response = None
 
-with col1:
-    if not st.session_state.alarm_recorded:
-        if st.button("✅ YES, I got up with the alarm"):
-            hora_actual = datetime.now(tz)
-            registro = {
-                "Alarm_Response": "YES",
-                "Alarm_Time": hora_actual.strftime("%Y-%m-%d %H:%M:%S"),
-                "Actions": {},
-                "Time_Recorded": hora_actual.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            coleccion.insert_one(registro)
-            st.session_state.alarm_recorded = True
-            st.success("You got up with the alarm, your session is recorded.")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.session_state.alarm_response is None:
+            if st.button("✅ YES"):
+                time_now = datetime.now(tz)
+                doc = {"Index": 1, "Alarm": "YES", "Timestamp": time_now}
+                collection.insert_one(doc)
+                st.session_state.alarm_response = "YES"
+                st.success("You confirmed: YES")
 
-with col2:
-    if not st.session_state.alarm_recorded:
-        if st.button("❌ NO, I did not get up with the alarm"):
-            hora_actual = datetime.now(tz)
-            registro = {
-                "Alarm_Response": "NO",
-                "Alarm_Time": hora_actual.strftime("%Y-%m-%d %H:%M:%S"),
-                "Actions": {},
-                "Time_Recorded": hora_actual.strftime("%Y-%m-%d %H:%M:%S")
-            }
-            coleccion.insert_one(registro)
-            st.session_state.alarm_recorded = True
-            st.warning("You did not get up with the alarm, your session is recorded.")
+    with col2:
+        if st.session_state.alarm_response is None:
+            if st.button("❌ NO"):
+                time_now = datetime.now(tz)
+                doc = {"Index": 1, "Alarm": "NO", "Timestamp": time_now}
+                collection.insert_one(doc)
+                st.session_state.alarm_response = "NO"
+                st.warning("You confirmed: NO")
 
-# Display checkboxes for the items
-st.subheader("Please check the items you've used:")
+    # Checkboxes for actions
+    st.subheader("Shower Routine Items")
+    actions = [
+        "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
+        "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
+        "Glass cleaner", "Comb", "Shaving razor"
+    ]
 
-actions = [
-    "Small chair/bench",
-    "Construction bucket",
-    "Cloths for cleaning windows",
-    "Rolled-up bag",
-    "Soaps",
-    "Shampoo",
-    "Conditioner",
-    "Hair collecting sponge",
-    "Glass cleaner",
-    "Comb",
-    "Shaving razor"
-]
-
-# Initialize actions in session state if not already done
-if "actions_checked" not in st.session_state:
-    st.session_state.actions_checked = {}
-
-# Process the actions
-for action in actions:
-    checked = st.checkbox(action, key=action)
-    
-    if checked:
-        # Store time when the item is checked
-        if action not in st.session_state.actions_checked:
-            st.session_state.actions_checked[action] = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
-            # Update MongoDB with the current time for the checked item
-            coleccion.update_one(
-                {"Alarm_Response": {"$in": ["YES", "NO"]}},
-                {"$set": {f"Actions.{action}": st.session_state.actions_checked[action]}}
+    for action in actions:
+        if st.checkbox(action, key=action):
+            time_now = datetime.now(tz)
+            collection.update_one(
+                {"Index": 1},
+                {"$set": {action: time_now.strftime("%Y-%m-%d %H:%M:%S")}},
+                upsert=True
             )
-            st.success(f"Time recorded for: {action}")
 
-# Display the recorded actions and times
-if st.session_state.actions_checked:
-    st.subheader("Actions and Times Recorded:")
-    for action, time in st.session_state.actions_checked.items():
-        st.write(f"{action}: {time}")
+# TAB 2 – Data & Visualization
+with tab2:
+    st.title("Tracked Actions Overview")
+
+    records = list(collection.find())
+    if not records:
+        st.info("No data found.")
+    else:
+        df = pd.DataFrame(records).drop(columns=["_id"])
+        df.sort_values("Timestamp", inplace=True)
+        st.subheader("Log Table")
+        st.dataframe(df)
+
+        # Heatmap (if time columns are available)
+        st.subheader("Action Timeline (minutes after alarm)")
+        if "Alarm" in df.columns:
+            df_time = df.copy()
+            base_time = pd.to_datetime(df_time["Timestamp"].min())
+            time_deltas = []
+
+            for col in actions:
+                if col in df_time.columns:
+                    df_time[col] = pd.to_datetime(df_time[col], errors="coerce")
+                    delta = (df_time[col] - base_time).dt.total_seconds() / 60
+                    time_deltas.append((col, delta.values[0] if not pd.isna(delta.values[0]) else None))
+
+            plot_df = pd.DataFrame(time_deltas, columns=["Action", "Minutes After Alarm"]).dropna()
+            fig, ax = plt.subplots()
+            sns.barplot(data=plot_df, x="Minutes After Alarm", y="Action", ax=ax, palette="Blues_d")
+            ax.set_title("Time Taken for Each Shower Item")
+            st.pyplot(fig)
