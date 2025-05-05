@@ -1,4 +1,8 @@
-streamlit
-pymongo
-pytz
-pandas
+streamlit==1.20.0
+pandas==2.0.2
+pymongo==4.3.3
+matplotlib==3.7.1
+seaborn==0.12.2
+numpy==1.24.2
+altair==4.2.2
+pytz==2023.3
