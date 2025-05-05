@@ -1,8 +1,7 @@
 streamlit
-pandas
 pymongo
+pytz
+pandas
 matplotlib
 seaborn
 numpy
-altair
-pytz
