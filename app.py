@@ -21,6 +21,7 @@ tab1, tab2 = st.tabs(["☀️ Morning Routine", "📊 Records"])
 with tab1:
     st.header("🧼 Morning Routine Tracker")
     st.subheader("Did you wake up with the alarm?")
+
     routine_items = [
         "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
         "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
@@ -72,7 +73,10 @@ with tab1:
             collection.insert_one(result)
 
             st.success("Routine saved successfully!")
-            st.write(pd.DataFrame.from_dict(result, orient='index', columns=["Value"]))
+
+            # Asegurarse de que todos los valores en "Value" sean cadenas para evitar el error
+            result_str = {key: str(value) for key, value in result.items()}
+            st.write(pd.DataFrame.from_dict(result_str, orient='index', columns=["Value"]))
 
             # Reset session state
             for key in ["start_time", "current_index", "timestamps", "woke_up", "yes_alarm", "no_alarm"]:
@@ -87,6 +91,10 @@ with tab2:
         for record in records:
             record.pop("_id", None)  # remove MongoDB id field
         df = pd.DataFrame(records)
+        
+        # Asegurarse de que todos los valores sean cadenas para evitar el error con Arrow
+        df = df.applymap(str)
+        
         df.index = [f"Record {i+1}" for i in range(len(df))]
         st.dataframe(df, use_container_width=True)
     else:
