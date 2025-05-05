@@ -40,16 +40,21 @@ st.write("Please select YES or NO to start the session:")
 
 # Ask the question first and only allow one option at a time
 if 'wake_up_selected' not in st.session_state:
-    wake_up_alarm_yes = st.checkbox("YES")
-    wake_up_alarm_no = st.checkbox("NO")
+    col1, col2 = st.columns(2)  # Create two columns for YES and NO options
+
+    with col1:
+        wake_up_alarm_yes = st.checkbox("YES", key="yes_checkbox")
+    with col2:
+        wake_up_alarm_no = st.checkbox("NO", key="no_checkbox")
 
     if wake_up_alarm_yes or wake_up_alarm_no:
         st.session_state['wake_up_selected'] = True
         st.session_state['session_start_time'] = datetime.now(colombia_tz)
         st.write(f"Session started at: {st.session_state['session_start_time'].strftime('%Y-%m-%d %H:%M:%S')}")
         # Disable both checkboxes to avoid re-selection
-        st.checkbox("YES", value=False, disabled=True)
-        st.checkbox("NO", value=False, disabled=True)
+        st.session_state['wake_up_selected'] = True
+        st.checkbox("YES", value=False, disabled=True, key="yes_disabled")
+        st.checkbox("NO", value=False, disabled=True, key="no_disabled")
 
 # Step 2: Select the items you took (Checkboxes appear one by one)
 if 'wake_up_selected' in st.session_state:
