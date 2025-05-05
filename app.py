@@ -1,75 +1,79 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
-from pymongo import MongoClient
+import pytz
+import pandas as pd
+import pymongo
+
+# Timezone for Colombia
+colombia_tz = pytz.timezone('America/Bogota')
+now_colombia = lambda: datetime.now(colombia_tz)
 
 # MongoDB connection
-client = MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-db = client['morning_routine']
-collection = db['sessions']
+client = pymongo.MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+db = client["morning_routine"]
+collection = db["sessions"]
+
+# Items to carry
+items = [
+    "Small chair/bench", "Construction bucket", "Cloths for cleaning windows", "Rolled-up bag",
+    "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", "Shaving razor"
+]
 
 st.title("Morning Routine Tracker")
 
-# Items list
-items = [
-    "Small chair/bench", "Construction bucket", "Cloths for cleaning windows", "Rolled-up bag",
-    "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
-    "Glass cleaner", "Comb", "Shaving razor"
-]
-
-# Initialize session state
-if 'start_time' not in st.session_state:
-    st.session_state.start_time = None
-if 'alarm_checked' not in st.session_state:
-    st.session_state.alarm_checked = False
+# Session state
+if 'item_states' not in st.session_state:
+    st.session_state.item_states = {item: False for item in items}
 if 'item_times' not in st.session_state:
     st.session_state.item_times = {}
-if 'table_displayed' not in st.session_state:
-    st.session_state.table_displayed = False
 
-# Step 1: Alarm checkbox
-st.write("Step 1: Did you wake up with the alarm?")
-alarm = st.checkbox("Woke up with the alarm")
-if alarm and not st.session_state.alarm_checked:
-    st.session_state.start_time = datetime.now()
-    st.session_state.alarm_checked = True
+# Wake-up question
+if 'woke_up' not in st.session_state:
+    st.session_state.woke_up = None
+    st.subheader("Did you wake up with the alarm?")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.checkbox("YES", key="wakeup_yes"):
+            st.session_state.woke_up = "YES"
+    with col2:
+        if st.checkbox("no", key="wakeup_no"):
+            st.session_state.woke_up = "NO"
 
-# Step 2: Items checkboxes
-st.write("Step 2: Select the items you took:")
+# If answered, show selected response
+if st.session_state.woke_up:
+    st.markdown(f"**You selected:** {st.session_state.woke_up}")
+    st.markdown("### Step 2: Confirm the items you carried:")
 
-all_checked = True
-for item in items:
-    if item not in st.session_state.item_times:
-        st.session_state.item_times[item] = None
-    checked = st.checkbox(item, key=item)
-    if checked and st.session_state.item_times[item] is None:
-        st.session_state.item_times[item] = datetime.now()
-    if not checked:
-        all_checked = False
-
-# Step 3: Display table when all items are checked
-if all_checked and not st.session_state.table_displayed:
-    end_time = max(st.session_state.item_times.values())
-    total_time = (end_time - st.session_state.start_time).total_seconds() if st.session_state.start_time else None
-
-    data = {
-        "Woke up with alarm": ["Yes" if alarm else "No"],
-        "Start hour": [st.session_state.start_time.strftime("%Y-%m-%d %H:%M:%S") if st.session_state.start_time else "N/A"]
-    }
-
+    # Item checkboxes
     for item in items:
-        timestamp = st.session_state.item_times[item]
-        data[item] = [timestamp.strftime("%Y-%m-%d %H:%M:%S") if timestamp else ""]
+        if not st.session_state.item_states[item]:
+            if st.checkbox(item, key=item):
+                st.session_state.item_states[item] = True
+                st.session_state.item_times[item] = now_colombia()
 
-    data["Finish hour"] = [end_time.strftime("%Y-%m-%d %H:%M:%S") if end_time else "N/A"]
-    data["Total time (seconds)"] = [total_time if total_time else "N/A"]
+    # Check if all are selected
+    if all(st.session_state.item_states.values()):
+        # Prepare DataFrame
+        start_time = min(st.session_state.item_times.values())
+        end_time = max(st.session_state.item_times.values())
+        total_duration = (end_time - start_time).total_seconds() / 60  # in minutes
 
-    df = pd.DataFrame(data)
+        data = {
+            "Woke up with alarm": st.session_state.woke_up,
+            "Start hour": [start_time.strftime("%Y-%m-%d %H:%M:%S")],
+            "End hour": [end_time.strftime("%Y-%m-%d %H:%M:%S")],
+            "Total time (min)": [round(total_duration, 2)],
+        }
 
-    # Save to MongoDB
-    collection.insert_one(data)
+        for item in items:
+            data[item] = [st.session_state.item_times[item].strftime("%Y-%m-%d %H:%M:%S")]
 
-    st.subheader("Routine Summary")
-    st.dataframe(df)
+        df = pd.DataFrame(data)
 
-    st.session_state.table_displayed = True
+        st.markdown("## Routine Summary")
+        st.dataframe(df)
+
+        # Save to MongoDB
+        collection.insert_one(df.to_dict(orient="records")[0])
+
+        st.success("Routine data saved to MongoDB.")
