@@ -1,88 +1,122 @@
 import streamlit as st
-import pandas as pd
-import pymongo
+from pymongo import MongoClient
 from datetime import datetime
 import pytz
+import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
 
 # MongoDB connection
 mongo_uri = "mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-client = pymongo.MongoClient(mongo_uri)
-db = client.get_database("shower_tracker")
-sessions_collection = db.sessions
+client = MongoClient(mongo_uri)
+db = client.shower_tracker
+collection = db.sessions
 
-# Item list
-items = ["Small chair", "Construction bucket", "Window cleaning cloths", "Rolled-up bag", 
-         "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", 
-         "Shaving razor", "Soaps"]
+# Timezone
+local_tz = pytz.timezone("America/Bogota")
 
-# Register session in MongoDB
-def log_session_to_mongo(start_time, end_time, item_times):
-    session_data = {
-        "session_start_time": start_time,
-        "session_end_time": end_time,
-        "session_duration": (end_time - start_time).total_seconds(),
-        "items": item_times
-    }
-    sessions_collection.insert_one(session_data)
+# App layout
+st.set_page_config(page_title="Morning Routine Tracker", layout="wide")
+st.title("🌅 Morning Routine Tracker")
 
-# Main app
-def main():
-    st.set_page_config(page_title="Wake Routine Tracker", layout="wide")
-    st.title("⏰ Wake Routine Tracker")
+# Session state
+if 'session_start' not in st.session_state:
+    st.session_state.session_start = None
+if 'items_checked' not in st.session_state:
+    st.session_state.items_checked = []
+if 'next_index' not in st.session_state:
+    st.session_state.next_index = 0
+if 'submitted' not in st.session_state:
+    st.session_state.submitted = False
+if 'alarm_yes' not in st.session_state:
+    st.session_state.alarm_yes = False
+if 'alarm_no' not in st.session_state:
+    st.session_state.alarm_no = False
 
-    tab1, tab2 = st.tabs(["📋 Record Session", "📊 View Data"])
+# Routine items
+routine_items = [
+    "Small chair", "Construction bucket", "Window cleaning cloths", "Rolled-up bag",
+    "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb",
+    "Shaving razor", "Soaps"
+]
 
-    with tab1:
-        st.subheader("Did you wake up with the alarm?")
-        woke_up_yes = st.checkbox("YES")
-        woke_up_no = st.checkbox("NO")
+# Start new session
+if st.session_state.session_start is None:
+    st.session_state.session_start = datetime.now(local_tz)
+    st.session_state.items_checked = []
+    st.session_state.next_index = 0
+    st.session_state.submitted = False
 
-        if woke_up_yes and woke_up_no:
-            st.warning("Please select only one: YES or NO.")
-            st.stop()
+st.subheader("🕰️ Did you wake up with the alarm?")
+col1, col2 = st.columns(2)
+with col1:
+    if st.checkbox("YES", key="wake_yes"):
+        st.session_state.alarm_yes = True
+        st.session_state.alarm_no = False
+with col2:
+    if st.checkbox("NO", key="wake_no"):
+        st.session_state.alarm_no = True
+        st.session_state.alarm_yes = False
 
-        if woke_up_yes or woke_up_no:
-            session_start = datetime.now(pytz.timezone("America/Bogota"))
-            st.success("Session started. Now check each item as you go.")
+if st.session_state.alarm_yes or st.session_state.alarm_no:
+    while st.session_state.next_index < len(routine_items):
+        current_item = routine_items[st.session_state.next_index]
+        if st.checkbox(f"{current_item}", key=f"item_{st.session_state.next_index}"):
+            st.session_state.items_checked.append(current_item)
+            st.session_state.next_index += 1
+            break
 
-            item_times = {}
-            for i, item in enumerate(items):
-                label = f"{i + 1}. {item}"
-                if i == 0 or items[i - 1] in item_times:
-                    if st.checkbox(label, key=item):
-                        item_times[item] = datetime.now(pytz.timezone("America/Bogota"))
-                        st.info(f"✔️ Marked at {item_times[item].strftime('%H:%M:%S')}")
+    if st.session_state.next_index == len(routine_items) and not st.session_state.submitted:
+        session_end = datetime.now(local_tz)
+        duration = (session_end - st.session_state.session_start).total_seconds()
+        session_data = {
+            "wake_up_with_alarm": st.session_state.alarm_yes,
+            "items_checked": st.session_state.items_checked,
+            "session_start_time": st.session_state.session_start,
+            "session_end_time": session_end,
+            "session_duration_sec": duration
+        }
+        collection.insert_one(session_data)
+        st.success("✅ Session saved!")
+        st.session_state.submitted = True
 
-            if len(item_times) == len(items):
-                session_end = datetime.now(pytz.timezone("America/Bogota"))
-                log_session_to_mongo(session_start, session_end, item_times)
-                duration_min = (session_end - session_start).total_seconds() / 60
-                st.success(f"✅ Session complete. Total time: {duration_min:.2f} minutes.")
+# Tabs
+view_tab, plot_tab = st.tabs(["📋 Table", "📈 Charts"])
 
-    with tab2:
-        st.subheader("📊 Session Summary and Chart")
-
-        data = list(sessions_collection.find())
-        if not data:
-            st.info("No sessions found.")
-            return
-
+with view_tab:
+    data = list(collection.find())
+    if data:
         df = pd.DataFrame(data)
         df['session_start_time'] = pd.to_datetime(df['session_start_time'])
         df['session_end_time'] = pd.to_datetime(df['session_end_time'])
-        df['session_duration_min'] = df['session_duration'] / 60
+        df['session_date'] = df['session_start_time'].dt.date
+        df['duration_min'] = df['session_duration_sec'] / 60
+        df.index += 1
+        st.dataframe(df[['session_date', 'wake_up_with_alarm', 'duration_min', 'items_checked']], use_container_width=True)
+    else:
+        st.info("No session data available yet.")
 
-        st.write("### Table of Sessions")
-        st.dataframe(df[["session_start_time", "session_end_time", "session_duration_min"]])
+with plot_tab:
+    if data:
+        df_grouped = df.groupby('session_date').agg({
+            'session_duration_sec': 'sum',
+            '_id': 'count'
+        }).rename(columns={'_id': 'sessions'})
+        df_grouped['duration_min'] = df_grouped['session_duration_sec'] / 60
 
-        st.write("### Duration per Session (minutes)")
-        plt.figure(figsize=(10, 5))
-        plt.bar(df.index + 1, df['session_duration_min'], color='teal')
-        plt.xlabel("Session Number")
-        plt.ylabel("Duration (minutes)")
-        plt.title("Total Time per Wake Routine Session")
-        st.pyplot(plt)
+        fig, ax1 = plt.subplots(figsize=(10, 5))
+        sns.barplot(x=df_grouped.index, y=df_grouped['sessions'], ax=ax1, color='skyblue')
+        ax1.set_ylabel("Sessions")
+        ax1.set_xlabel("Date")
+        ax1.set_title("Number of Sessions per Day")
+        st.pyplot(fig)
 
-if __name__ == "__main__":
-    main()
+        fig2, ax2 = plt.subplots(figsize=(10, 5))
+        sns.lineplot(x=df_grouped.index, y=df_grouped['duration_min'], marker='o', ax=ax2, color='green')
+        ax2.set_ylabel("Total Time (minutes)")
+        ax2.set_xlabel("Date")
+        ax2.set_title("Total Session Duration per Day")
+        st.pyplot(fig2)
+    else:
+        st.info("No data for plotting.")
