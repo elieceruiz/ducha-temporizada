@@ -1,94 +1,88 @@
 import streamlit as st
-import pymongo
 import pandas as pd
 from datetime import datetime
-import pytz
+import pymongo
 
-# --- MongoDB connection ---
+# Conexión a MongoDB Atlas
 client = pymongo.MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
-db = client["morning_tracker"]
-collection = db["routine_logs"]
+db = client["morning_routine"]
+collection = db["log"]
 
-# --- Timezone setting ---
-tz = pytz.timezone("America/Bogota")
+# Configuración de la zona horaria
+st.set_page_config(page_title="Morning Routine Tracker", page_icon=":alarm_clock:")
 
-# --- Static item list ---
+# Función para obtener los registros previos
+def get_previous_logs():
+    logs = collection.find().sort("start_time", pymongo.ASCENDING)
+    return list(logs)
+
+# Mostrar los registros previos
+logs = get_previous_logs()
+if logs:
+    st.write("Previous Logs:")
+    log_data = []
+    for log in logs:
+        log_data.append({
+            "Woke up with alarm": log["woke_up_with_alarm"],
+            "Start hour": log["start_time"],
+            "Item": log["item"],
+            "End hour": log["end_time"],
+            "Total time": log["total_time"]
+        })
+    df_logs = pd.DataFrame(log_data)
+    st.dataframe(df_logs)
+
+# Step 1: Wake up with alarm question using checkboxes
+if "woke_up" not in st.session_state:
+    st.session_state["woke_up"] = None
+
+# Checkbox to select if woke up with alarm
+woke_up_checkbox = st.checkbox("Did you wake up with the alarm?", key="woke_up")
+
+# Save the selection of YES or NO as text
+if woke_up_checkbox:
+    st.session_state["woke_up_text"] = "YES"
+else:
+    st.session_state["woke_up_text"] = "NO"
+
+if st.session_state.get("woke_up_text"):
+    st.write(f"Your selection: {st.session_state['woke_up_text']}")
+
+# Step 2: Select the items you took using checkboxes
 items = [
-    "Small chair/bench", "Construction bucket", "Cloths for cleaning windows", "Rolled-up bag",
-    "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge", "Glass cleaner", "Comb", "Shaving razor"
+    "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
+    "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
+    "Glass cleaner", "Comb", "Shaving razor"
 ]
 
-# --- Initialize session state ---
-if "routine_started" not in st.session_state:
-    st.session_state.routine_started = False
-    st.session_state.woke_up_with_alarm = None
-    st.session_state.item_log = {}
-    st.session_state.current_item = 0
+# Display checkboxes for each item
+selected_items = []
+for item in items:
+    if st.checkbox(item, key=item):
+        selected_items.append(item)
+        st.session_state[item] = datetime.now()
 
-# --- Header ---
-st.title("🌅 Morning Routine Tracker")
-st.write("Welcome! Track your routine step-by-step. Select whether you woke up with the alarm.")
-
-# --- Step 1: Wake up confirmation ---
-if not st.session_state.routine_started:
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ YES", key="yes_button"):
-            st.session_state.woke_up_with_alarm = "YES"
-            st.session_state.routine_started = True
-    with col2:
-        if st.button("❌ NO", key="no_button"):
-            st.session_state.woke_up_with_alarm = "NO"
-            st.session_state.routine_started = True
-
-# --- Step 2: Item logging ---
-if st.session_state.routine_started:
-    st.success(f"Woke up with the alarm: {st.session_state.woke_up_with_alarm}")
-
-    if st.session_state.current_item < len(items):
-        item = items[st.session_state.current_item]
-        if st.button(f"✅ Took: {item}"):
-            now = datetime.now(tz)
-            st.session_state.item_log[item] = now.strftime("%Y-%m-%d %H:%M:%S")
-            st.session_state.current_item += 1
-    else:
-        # All items logged: Save to MongoDB
-        data = {
-            "Woke up with the alarm": st.session_state.woke_up_with_alarm,
-            "Start hour": list(st.session_state.item_log.values())[0],
-        }
-        for item in items:
-            data[item] = st.session_state.item_log.get(item, "Not marked")
-        data["End hour"] = list(st.session_state.item_log.values())[-1]
-
-        # Calculate total time
-        try:
-            start = datetime.strptime(data["Start hour"], "%Y-%m-%d %H:%M:%S")
-            end = datetime.strptime(data["End hour"], "%Y-%m-%d %H:%M:%S")
-            total_time = end - start
-            data["Total time"] = str(total_time)
-        except Exception as e:
-            data["Total time"] = "Error calculating"
-
-        collection.insert_one(data)
-
-        st.success("✅ Routine logged successfully!")
-
-        df = pd.DataFrame([data])
-        df_display = df.drop(columns=items)  # Optionally exclude detailed item times
-        st.dataframe(df_display)
-
-# --- Display previous records ---
-st.markdown("---")
-st.subheader("📜 Previous Sessions")
-records = list(collection.find().sort("Start hour", -1))
-
-if records:
-    df_prev = pd.DataFrame(records)
-    df_prev.drop(columns=["_id"], inplace=True)
-    df_prev.reset_index(drop=True, inplace=True)
-    df_prev.index += 1
-    df_prev.index.name = "Session #"
-    st.dataframe(df_prev)
-else:
-    st.info("No previous records found.")
+# Once the last item is selected, the table with logs appears
+if len(selected_items) == len(items):
+    # Record the session start time
+    start_time = datetime.now()
+    end_times = []
+    total_times = []
+    
+    # Calculate the end times and total times for each item
+    for item in selected_items:
+        end_time = datetime.now()  # Placeholder, update with the actual end time
+        end_times.append(end_time)
+        total_time = (end_time - st.session_state[item]).total_seconds()
+        total_times.append(total_time)
+    
+    # Save the log to MongoDB
+    collection.insert_one({
+        "woke_up_with_alarm": st.session_state["woke_up_text"],
+        "start_time": start_time,
+        "item": selected_items,
+        "end_time": end_times,
+        "total_time": total_times
+    })
+    
+    st.write("Session complete. Your routine has been logged.")
