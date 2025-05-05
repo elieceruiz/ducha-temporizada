@@ -21,7 +21,6 @@ tab1, tab2 = st.tabs(["☀️ Morning Routine", "📊 Records"])
 with tab1:
     st.header("🧼 Morning Routine Tracker")
     st.subheader("Did you wake up with the alarm?")
-
     routine_items = [
         "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
         "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
@@ -61,22 +60,19 @@ with tab1:
                 st.rerun()
         else:
             end_time = datetime.now(tz)
-            total_time = round((end_time - st.session_state.start_time).total_seconds() / 60, 2)
+            total_time_seconds = round((end_time - st.session_state.start_time).total_seconds(), 2)
 
             result = {
                 "Woke up with alarm": st.session_state.woke_up,
                 "Start hour": st.session_state.start_time.strftime("%Y-%m-%d %H:%M:%S"),
                 "End hour": end_time.strftime("%Y-%m-%d %H:%M:%S"),
-                "Total time (minutes)": total_time,
+                "Total time (seconds)": total_time_seconds,
             }
             result.update(st.session_state.timestamps)
             collection.insert_one(result)
 
             st.success("Routine saved successfully!")
-
-            # Asegurarse de que todos los valores en "Value" sean cadenas para evitar el error
-            result_str = {key: str(value) for key, value in result.items()}
-            st.write(pd.DataFrame.from_dict(result_str, orient='index', columns=["Value"]))
+            st.write(pd.DataFrame.from_dict(result, orient='index', columns=["Value"]))
 
             # Reset session state
             for key in ["start_time", "current_index", "timestamps", "woke_up", "yes_alarm", "no_alarm"]:
@@ -92,10 +88,10 @@ with tab2:
             record.pop("_id", None)  # remove MongoDB id field
         df = pd.DataFrame(records)
         
-        # Asegurarse de que todos los valores sean cadenas para evitar el error con Arrow
-        df = df.applymap(str)
-        
+        # Change the index to start from 1 instead of 0
         df.index = [f"Record {i+1}" for i in range(len(df))]
+        
+        # Adjust the header as needed
         st.dataframe(df, use_container_width=True)
     else:
         st.info("No records found yet.")
