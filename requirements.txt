@@ -1,6 +1,5 @@
-streamlit
-pymongo
-pytz
-pandas
-matplotlib
-seaborn
+streamlit==1.17.0
+pandas==2.0.3
+pymongo==4.5.0
+plotly==5.15.0
+pytz==2023.3
