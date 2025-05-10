@@ -20,6 +20,7 @@ tab1, tab2 = st.tabs(["☀️ Morning Routine", "📊 Records"])
 with tab1:
     st.header("🧼 Morning Routine Tracker")
     st.subheader("Did you wake up with the alarm?")
+
     routine_items = [
         "Small chair/bench", "Construction bucket", "Cloths for cleaning windows",
         "Rolled-up bag", "Soaps", "Shampoo", "Conditioner", "Hair collecting sponge",
@@ -58,18 +59,20 @@ with tab1:
                 st.session_state.current_index += 1
                 st.rerun()
 
-            # Inicia el pitido al marcar el primer ítem
-            if st.session_state.current_index == 1:
-                beep_script = """
-                <script>
-                let audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-                setInterval(() => {
-                    audio.play();
-                }, 10000);
-                </script>
-                """
-                st.components.v1.html(beep_script, height=0)
-        else:
+        # Inicia el pitido cuando se marca el primer ítem
+        if st.session_state.current_index == 1:
+            beep_script = """
+            <script>
+            let audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+            window.beepInterval = setInterval(() => {
+                audio.play();
+            }, 10000);
+            </script>
+            """
+            st.components.v1.html(beep_script, height=0)
+
+        # Finaliza rutina
+        if st.session_state.current_index == len(routine_items):
             end_time = datetime.now(tz)
             total_time_seconds = round((end_time - st.session_state.start_time).total_seconds(), 2)
 
@@ -84,6 +87,16 @@ with tab1:
 
             st.success("Routine saved successfully!")
             st.write(pd.DataFrame.from_dict(result, orient='index', columns=["Value"]))
+
+            # Detener el pitido
+            stop_beep_script = """
+            <script>
+            if (window.beepInterval) {
+                clearInterval(window.beepInterval);
+            }
+            </script>
+            """
+            st.components.v1.html(stop_beep_script, height=0)
 
             # Reset session state
             for key in ["start_time", "current_index", "timestamps", "woke_up", "yes_alarm", "no_alarm"]:
