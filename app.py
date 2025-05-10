@@ -14,7 +14,6 @@ tz = pytz.timezone("America/Bogota")
 
 # App UI
 st.set_page_config(page_title="Morning Routine", layout="centered")
-
 tab1, tab2 = st.tabs(["☀️ Morning Routine", "📊 Records"])
 
 # ------------------- TAB 1: Main Routine Tracker ----------------------
@@ -35,8 +34,6 @@ with tab1:
         st.session_state.timestamps = {}
     if "woke_up" not in st.session_state:
         st.session_state.woke_up = None
-    if "routine_complete" not in st.session_state:
-        st.session_state.routine_complete = False
 
     if st.session_state.woke_up is None:
         col1, col2 = st.columns(2)
@@ -61,16 +58,17 @@ with tab1:
                 st.session_state.current_index += 1
                 st.rerun()
 
-            # Play beep every 10s
-            beep_script = """
+            # Inicia el pitido al marcar el primer ítem
+            if st.session_state.current_index == 1:
+                beep_script = """
                 <script>
-                var audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+                let audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
                 setInterval(() => {
                     audio.play();
                 }, 10000);
                 </script>
-            """
-            st.components.v1.html(beep_script)
+                """
+                st.components.v1.html(beep_script, height=0)
         else:
             end_time = datetime.now(tz)
             total_time_seconds = round((end_time - st.session_state.start_time).total_seconds(), 2)
@@ -84,7 +82,6 @@ with tab1:
             result.update(st.session_state.timestamps)
             collection.insert_one(result)
 
-            st.session_state.routine_complete = True
             st.success("Routine saved successfully!")
             st.write(pd.DataFrame.from_dict(result, orient='index', columns=["Value"]))
 
