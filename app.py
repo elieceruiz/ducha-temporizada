@@ -5,7 +5,7 @@ import pytz
 import pandas as pd
 
 # MongoDB connection
-client = pymongo.MongoClient("mongodb+srv://elieceruiz_admin:fPydI3B73ijAukEz@cluster0.rqzim65.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")
+client = pymongo.MongoClient("X")
 db = client["morning_routine"]
 collection = db["routines"]
 
